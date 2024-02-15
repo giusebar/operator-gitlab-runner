@@ -56,9 +56,16 @@ start_container () {
     done
 }
 
+set_proxy_env () {
+    lxc config set "$CONTAINER_ID" environment.HTTP_PROXY "http://squid.internal:3128"
+    lxc config set "$CONTAINER_ID" environment.HTTPS_PROXY "http://squid.internal:3128"
+    lxc restart "$CONTAINER_ID"
+    lxc exec "$CONTAINER_ID" env
+}
+
 install_dependencies () {
     # Install Git LFS, git comes pre installed with ubuntu image.
-    lxc exec "$CONTAINER_ID" -- sh -c "curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash"
+    lxc exec "$CONTAINER_ID" -- sh -c "curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo -E bash"
     lxc exec "$CONTAINER_ID" -- sh -c "apt install -y git-lfs"
 
     # Install gitlab-runner binary since we need for cache/artifacts.
@@ -71,5 +78,7 @@ echo "Running in $CONTAINER_ID"
 prepare_network
 
 start_container
+
+set_proxy_env
 
 install_dependencies
