@@ -61,6 +61,8 @@ set_proxy_env () {
     lxc config set "$CONTAINER_ID" environment.HTTPS_PROXY "http://squid.internal:3128"
     lxc restart "$CONTAINER_ID"
     lxc exec "$CONTAINER_ID" env
+    lxc exec "$CONTAINER_ID" -- sh -c 'echo "export HTTP_PROXY=http://squid.internal:3128 && export HTTPS_PROXY=http://squid.internal:3128 && export http_proxy=http://squid.internal:3128 && https_proxy=http://squid.proxy:3128" >> ~/.bashrc'
+    lxc exec "$CONTAINER_ID" -- sh -c 'echo "Defaults env_keep += \"HTTP_PROXY HTTPS_PROXY\"" | sudo tee -a /etc/sudoers >/dev/null && visudo -c >/dev/null && echo "Line added successfully to sudoers file." || echo "Error: sudoers file syntax is incorrect. Please correct manually."'
 }
 
 install_dependencies () {
