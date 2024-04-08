@@ -208,7 +208,7 @@ def register_lxd(charm, https_proxy=None, http_proxy=None) -> bool:
            f"--run-untagged={run_untagged}",
            f"--locked={locked}",
            "--executor", "custom",
-           "--builds-dir", "/builds ",
+           "--builds-dir", "/builds",
            "--cache-dir", "/cache",
            "--custom-run-exec", "/opt/lxd-executor/run.sh",
            "--custom-prepare-exec", "/opt/lxd-executor/prepare.sh",
