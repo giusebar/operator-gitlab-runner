@@ -1,7 +1,6 @@
-name: gitlab-runner
-display-name: gitlab-runner
-summary: A gitlab-runner charm.
-maintainer: Erik Lönroth <erik.lonroth@gmail.com>
+name: gitlab-runner-operator
+display-name: gitlab-runner-operator
+summary: A gitlab-runner operator charm.
 description: |
    Registers gitlab-runner instances with a gitlab server instance. Uses upstream gitlab-runner.
    Supports docker & lxd custom runners.

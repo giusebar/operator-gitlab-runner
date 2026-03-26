@@ -4,6 +4,7 @@
 #
 # Learn more at: https://juju.is/docs/sdk
 import logging
+import os
 import pathlib
 import stat
 import re
@@ -16,18 +17,18 @@ from pathlib import Path
 import jinja2
 
 
-def install_lxd_executor():
+def install_lxd_executor(env=None):
     subprocess.run(['useradd', '-g', 'lxd', 'gitlab-runner'])
     subprocess.run(['mkdir', '-p', '/opt/lxd-executor'])
     for file in glob.glob('templates/lxd-executor/*.sh'):
         f = Path(file)
         installed_file = Path(shutil.copy2(f, '/opt/lxd-executor/'))
         installed_file.chmod(stat.S_IEXEC)
-    subprocess.run(['lxd', 'init', '--auto'])
+    subprocess.run(['lxd', 'init', '--auto'], env=env)
 
 
-def install_docker_executor():
-    subprocess.run(['apt', 'install', '-y', 'docker.io'])
+def install_docker_executor(env=None):
+    subprocess.run(['apt', 'install', '-y', 'docker.io'], env=env)
     subprocess.run(['systemctl', 'start', 'docker.service'])
 
 
@@ -83,12 +84,16 @@ def _render_runner_templates(charm) -> bool:
             logging.error(f"Template {_template_filename} could not be found.")
             return False
         except jinja2.exceptions.TemplateSyntaxError as e:
-            logging.error(f'Template {_template_filename} could not be rendered due to syntax error\n'
-                          f'\tProblem: {e}')
+            logging.error(
+                f'Template {_template_filename} could not be rendered due to '
+                f'syntax error\n\tProblem: {e}'
+            )
             return False
         except jinja2.exceptions.UndefinedError as e:
-            logging.error(f'Template {_template_filename} could not be rendered due to syntax error\n'
-                          f'\tProblem: {e}')
+            logging.error(
+                f'Template {_template_filename} could not be rendered due to '
+                f'syntax error\n\tProblem: {e}'
+            )
             return False
         except jinja2.TemplateError as e:
             logging.error(f'Template {template_filename} could not be rendered\n'
@@ -96,12 +101,16 @@ def _render_runner_templates(charm) -> bool:
             return False
 
     # Render #1 - global runner config
+    sentry_dsn = charm.config['sentry-dsn']
+    if not isinstance(sentry_dsn, str):
+        sentry_dsn = ''
+
     template_path = Path('templates/etc/gitlab-runner/')
     template_filename = 'config.toml'
     rendered_target_path = Path('/etc/gitlab-runner/config.toml')
     keywords_to_render = {'concurrent': charm.config['concurrent'],
                           'checkinterval': charm.config['check-interval'],
-                          'sentrydsn': charm.config['sentry-dsn'],
+                          'sentrydsn': sentry_dsn,
                           'loglevel': charm.config['log-level'],
                           'logformat': charm.config['log-format']}
     if not _render_templates(template_path,
@@ -119,7 +128,9 @@ def _render_runner_templates(charm) -> bool:
         keywords_to_render = {'docker_image': charm.config['docker-image']}
         # If tmpfs was defined for Docker executor, render required config.
         if charm.config['docker-tmpfs'] != '':
-            docker_tmpfs_path, docker_tmpfs_config = charm.config['docker-tmpfs'].split(':')
+            docker_tmpfs_path, docker_tmpfs_config = charm.config[
+                'docker-tmpfs'
+            ].split(':')
             keywords_to_render['docker_tmpfs_path'] = docker_tmpfs_path
             keywords_to_render['docker_tmpfs_config'] = docker_tmpfs_config
         # If docker-in-docker is allowed
@@ -135,7 +146,7 @@ def _render_runner_templates(charm) -> bool:
     return True
 
 
-def register_docker(charm, https_proxy=None, http_proxy=None) -> bool:
+def register_docker(charm, https_proxy=None, http_proxy=None, no_proxy=None) -> bool:
 
     # Render Gitlab runner templates
     if not _render_runner_templates(charm):
@@ -148,7 +159,16 @@ def register_docker(charm, https_proxy=None, http_proxy=None) -> bool:
     concurrent = charm.config['concurrent']
     run_untagged = charm.config['run-untagged']
     locked = charm.config['locked']
-    proxyenv = ""
+    runner_env = os.environ.copy()
+    if http_proxy:
+        runner_env['HTTP_PROXY'] = http_proxy
+        runner_env['http_proxy'] = http_proxy
+    if https_proxy:
+        runner_env['HTTPS_PROXY'] = https_proxy
+        runner_env['https_proxy'] = https_proxy
+    if no_proxy:
+        runner_env['NO_PROXY'] = no_proxy
+        runner_env['no_proxy'] = no_proxy
 
     cmd = ["gitlab-runner", "register",
            "--non-interactive",
@@ -160,17 +180,20 @@ def register_docker(charm, https_proxy=None, http_proxy=None) -> bool:
            "--request-concurrency", f"{concurrent}",
            f"--run-untagged={run_untagged}",
            f"--locked={locked}",
-           "--executor", "docker",
-           f"{proxyenv}"]
+           "--executor", "docker"]
 
     if not run_untagged and tag_list != "":
         cmd.extend(["--tag-list", "{tag-list}"])
     if run_untagged and tag_list != "":
-        logging.warning('Conflicting configuration, run-untagged=True and tag_list are mutually exclusive. \
-        Skipping tag-list.')
+        logging.warning(
+            'Conflicting configuration, run-untagged=True and tag_list are '
+            'mutually exclusive. Skipping tag-list.'
+        )
 
-    logging.info("Executing registration call for gitlab-runner with Docker executor")
-    process = subprocess.Popen(cmd)
+    logging.info(
+        "Executing registration call for gitlab-runner with Docker executor"
+    )
+    process = subprocess.Popen(cmd, env=runner_env)
     try:
         std_out, std_err = process.communicate(timeout=30)
         if std_out:
@@ -182,11 +205,14 @@ def register_docker(charm, https_proxy=None, http_proxy=None) -> bool:
         logging.error('Registration of gitlab-runner timed out and failed')
         return False
 
-    logging.info(f'Registration of Docker executor finished with exit code: {process.returncode}')
+    logging.info(
+        f'Registration of Docker executor finished with exit code: '
+        f'{process.returncode}'
+    )
     return process.returncode == 0
 
 
-def register_lxd(charm, https_proxy=None, http_proxy=None) -> bool:
+def register_lxd(charm, https_proxy=None, http_proxy=None, no_proxy=None) -> bool:
 
     # Render Gitlab runner templates
     if not _render_runner_templates(charm):
@@ -199,7 +225,16 @@ def register_lxd(charm, https_proxy=None, http_proxy=None) -> bool:
     concurrent = charm.config['concurrent']
     run_untagged = charm.config['run-untagged']
     locked = charm.config['locked']
-    proxyenv = ""
+    runner_env = os.environ.copy()
+    if http_proxy:
+        runner_env['HTTP_PROXY'] = http_proxy
+        runner_env['http_proxy'] = http_proxy
+    if https_proxy:
+        runner_env['HTTPS_PROXY'] = https_proxy
+        runner_env['https_proxy'] = https_proxy
+    if no_proxy:
+        runner_env['NO_PROXY'] = no_proxy
+        runner_env['no_proxy'] = no_proxy
 
     cmd = ["gitlab-runner", "register",
            "--non-interactive",
@@ -216,16 +251,18 @@ def register_lxd(charm, https_proxy=None, http_proxy=None) -> bool:
            "--custom-run-exec", "/opt/lxd-executor/run.sh",
            "--custom-prepare-exec", "/opt/lxd-executor/prepare.sh",
            "--custom-cleanup-exec", "/opt/lxd-executor/cleanup.sh",
-           f"{proxyenv}"]
+           ]
 
     if not run_untagged and tag_list != "":
         cmd.extend(["--tag-list", "{tag-list}"])
     if run_untagged and tag_list != "":
-        logging.warning('Conflicting configuration, run-untagged=True and tag_list are mutually exclusive. \
-        Skipping tag-list.')
+        logging.warning(
+            'Conflicting configuration, run-untagged=True and tag_list are '
+            'mutually exclusive. Skipping tag-list.'
+        )
 
     logging.info("Executing registration call for gitlab-runner with lxd executor")
-    process = subprocess.Popen(cmd)
+    process = subprocess.Popen(cmd, env=runner_env)
     try:
         std_out, std_err = process.communicate(timeout=30)
         if std_out:
@@ -237,7 +274,10 @@ def register_lxd(charm, https_proxy=None, http_proxy=None) -> bool:
         logging.error('Registration of gitlab-runner timed out and failed')
         return False
 
-    logging.info(f'Registration of lxd executor finished with exit code: {process.returncode}')
+    logging.info(
+        f'Registration of lxd executor finished with exit code: '
+        f'{process.returncode}'
+    )
     return process.returncode == 0
 
 

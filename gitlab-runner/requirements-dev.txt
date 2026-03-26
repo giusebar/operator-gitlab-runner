@@ -1,4 +1,6 @@
 -r requirements.txt
 coverage
 flake8
-charm
+pytest
+pytest-mock
+black

@@ -2,7 +2,9 @@
 
 concurrent = {{concurrent}}
 check_interval = {{checkinterval}}
+{% if sentrydsn %}
 sentry_dsn = "{{sentrydsn}}"
+{% endif %}
 log_level = "{{loglevel}}"
 log_format = "{{logformat}}"
 

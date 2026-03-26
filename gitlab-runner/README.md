@@ -26,9 +26,29 @@ The following configurations are mandatory:
 * **gitlab-server** : The URL address to your gitlab server used to perform the gitlab-runner registration.
 
 ## LXD runners
-Default lxd image will be set to ubuntu:18.04 if none has been set with the 'image' keyword in the .gitlab-ci.yml
+Default lxd image will be set to ubuntu:22.04 if none has been set with the 'image' keyword in the .gitlab-ci.yml
 
 This can be changed also with the CUSTOM_ENV_CI_JOB_IMAGE variable in your gitlab project.
+
+## Proxy support
+The charm supports proxy configuration for runner registration, package installation, and runtime execution.
+
+Available charm options:
+
+* **juju-http-proxy** : Juju HTTP proxy URL. Example: http://proxy.example.com:8080/
+* **juju-https-proxy** : Juju HTTPS proxy URL. Example: https://proxy.example.com:8080/
+* **juju-no-proxy** : Comma separated list of hosts/domains to bypass proxy. Default: 127.0.0.1,localhost,::1
+
+Example:
+
+  juju config gitlab-runner juju-http-proxy=http://proxy.example.com:8080
+  juju config gitlab-runner juju-https-proxy=https://proxy.example.com:8080
+  juju config gitlab-runner juju-no-proxy=localhost,127.0.0.1,.internal.example.com
+
+If proxy values change after registration, re-register to ensure all runner settings are applied:
+
+  juju run gitlab-runner/0 unregister
+  juju run gitlab-runner/0 register
 
 ## Group runners
 

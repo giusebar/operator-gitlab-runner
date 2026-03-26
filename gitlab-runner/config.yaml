@@ -90,16 +90,6 @@ options:
     default: false
     description: "Makes the runner units digest untagged jobs or not."
 
-  https_proxy:
-    type: string
-    default: ""
-    description: "A https proxy url E.g. https://proxy.example.com:8080/"
-
-  http_proxy:
-    type: string
-    default: ""
-    description: "A http proxy url E.g. http://proxy.example.com:8080/"
-
   docker-tmpfs:
     type: string
     default: ""

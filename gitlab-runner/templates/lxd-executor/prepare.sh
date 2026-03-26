@@ -10,8 +10,8 @@ set -eo pipefail
 # trap any error, and mark it as a system failure.
 trap "exit $SYSTEM_FAILURE_EXIT_CODE" ERR
 
-# default to Ubuntu 18.04 if none has been set with the 'image' keyword in the .gitlab-ci.yml
-CUSTOM_ENV_CI_JOB_IMAGE="${CUSTOM_ENV_CI_JOB_IMAGE:-ubuntu:18.04}"
+# default to Ubuntu 22.04 if none has been set with the 'image' keyword in the .gitlab-ci.yml
+CUSTOM_ENV_CI_JOB_IMAGE="${CUSTOM_ENV_CI_JOB_IMAGE:-ubuntu:22.04}"
 
 prepare_network () {
 
@@ -57,12 +57,29 @@ start_container () {
 }
 
 set_proxy_env () {
-    lxc config set "$CONTAINER_ID" environment.HTTP_PROXY "http://squid.internal:3128"
-    lxc config set "$CONTAINER_ID" environment.HTTPS_PROXY "http://squid.internal:3128"
-    lxc restart "$CONTAINER_ID"
-    lxc exec "$CONTAINER_ID" env
-    lxc exec "$CONTAINER_ID" -- sh -c 'echo "export HTTP_PROXY=http://squid.internal:3128 && export HTTPS_PROXY=http://squid.internal:3128 && export http_proxy=http://squid.internal:3128 && https_proxy=http://squid.proxy:3128" >> ~/.bashrc'
-    lxc exec "$CONTAINER_ID" -- sh -c 'echo "Defaults env_keep += \"HTTP_PROXY HTTPS_PROXY\"" | sudo tee -a /etc/sudoers >/dev/null && visudo -c >/dev/null && echo "Line added successfully to sudoers file." || echo "Error: sudoers file syntax is incorrect. Please correct manually."'
+    local updated=0
+
+    if [ -n "${HTTP_PROXY:-}" ]; then
+        lxc config set "$CONTAINER_ID" environment.HTTP_PROXY "$HTTP_PROXY"
+        lxc config set "$CONTAINER_ID" environment.http_proxy "$HTTP_PROXY"
+        updated=1
+    fi
+
+    if [ -n "${HTTPS_PROXY:-}" ]; then
+        lxc config set "$CONTAINER_ID" environment.HTTPS_PROXY "$HTTPS_PROXY"
+        lxc config set "$CONTAINER_ID" environment.https_proxy "$HTTPS_PROXY"
+        updated=1
+    fi
+
+    if [ -n "${NO_PROXY:-}" ]; then
+        lxc config set "$CONTAINER_ID" environment.NO_PROXY "$NO_PROXY"
+        lxc config set "$CONTAINER_ID" environment.no_proxy "$NO_PROXY"
+        updated=1
+    fi
+
+    if [ "$updated" -eq 1 ]; then
+        lxc restart "$CONTAINER_ID"
+    fi
 }
 
 install_dependencies () {
