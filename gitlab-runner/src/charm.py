@@ -183,6 +183,7 @@ class GitlabRunnerCharm(CharmBase):
         # Stage 4 - determine lxd/docker type executor
         if e == 'lxd':
             gitlab_runner.install_lxd_executor(env=runner_env)
+            gitlab_runner.configure_lxd_proxy(self._get_proxy_env())
         elif e == 'docker':
             gitlab_runner.install_docker_executor(env=runner_env)
         else:
@@ -197,6 +198,8 @@ class GitlabRunnerCharm(CharmBase):
     def _on_config_changed(self, _):
         self._write_runner_env_defaults()
         self._write_docker_proxy_dropin()
+        if self.config.get('executor') == 'lxd':
+            gitlab_runner.configure_lxd_proxy(self._get_proxy_env())
         subprocess.run(['systemctl', 'daemon-reload'])
         if self.config.get('executor') == 'docker':
             subprocess.run(['systemctl', 'restart', 'docker.service'])

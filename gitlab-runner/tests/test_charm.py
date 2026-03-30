@@ -277,3 +277,41 @@ class TestCharm(unittest.TestCase):
             https_proxy='https://proxy.example.com:3129',
             no_proxy='localhost,127.0.0.1'
         )
+
+    @patch('gitlab_runner.gitlab_runner_registered_already')
+    @patch('gitlab_runner.configure_lxd_proxy')
+    @patch('subprocess.run')
+    @patch('gitlab_runner.get_token')
+    def test_33_config_changed_applies_lxd_proxy(
+        self,
+        mock_get_token,
+        mock_subprocess_run,
+        mock_configure_lxd_proxy,
+        mock_registered,
+    ):
+        mock_get_token.return_value = 'ABCDEFGH'
+        mock_subprocess_run.return_value.returncode = 0
+        mock_registered.return_value = True
+        with patch.dict(
+            os.environ,
+            {
+                "JUJU_CHARM_HTTP_PROXY": "http://proxy.example.com:3128",
+                "JUJU_CHARM_HTTPS_PROXY": "https://proxy.example.com:3129",
+                "JUJU_CHARM_NO_PROXY": "localhost,127.0.0.1",
+            },
+            clear=False,
+        ):
+            self.harness.update_config({
+                "gitlab-registration-token": "abc",
+                "gitlab-server": "https://gitlab.com",
+                "executor": "lxd",
+            })
+
+        mock_configure_lxd_proxy.assert_called_once_with({
+            "HTTP_PROXY": "http://proxy.example.com:3128",
+            "http_proxy": "http://proxy.example.com:3128",
+            "HTTPS_PROXY": "https://proxy.example.com:3129",
+            "https_proxy": "https://proxy.example.com:3129",
+            "NO_PROXY": "localhost,127.0.0.1",
+            "no_proxy": "localhost,127.0.0.1",
+        })

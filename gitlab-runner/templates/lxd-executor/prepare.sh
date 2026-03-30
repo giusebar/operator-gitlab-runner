@@ -83,13 +83,14 @@ set_proxy_env () {
 }
 
 install_dependencies () {
-    # Install Git LFS, git comes pre installed with ubuntu image.
-    lxc exec "$CONTAINER_ID" -- sh -c "curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo -E bash"
-    lxc exec "$CONTAINER_ID" -- sh -c "apt install -y git-lfs"
+    # Refresh apt metadata in the new container before installing packages.
+    lxc exec "$CONTAINER_ID" -- sh -ec "export DEBIAN_FRONTEND=noninteractive; apt-get update -y"
 
-    # Install gitlab-runner binary since we need for cache/artifacts.
-    lxc exec "$CONTAINER_ID" -- sh -c "curl -L --output /usr/local/bin/gitlab-runner https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-linux-amd64"
-    lxc exec "$CONTAINER_ID" -- sh -c "chmod +x /usr/local/bin/gitlab-runner"
+    # Install Git LFS; retry with upstream repository bootstrap when needed.
+    lxc exec "$CONTAINER_ID" -- sh -ec "export DEBIAN_FRONTEND=noninteractive; apt-get install -y git-lfs || (curl -fsSL https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | bash && apt-get update -y && apt-get install -y git-lfs)"
+
+    # Install gitlab-runner for cache/artifacts support without relying on S3 downloads.
+    lxc exec "$CONTAINER_ID" -- sh -ec "export DEBIAN_FRONTEND=noninteractive; apt-get install -y gitlab-runner || (curl -fsSL https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh | bash && apt-get update -y && apt-get install -y gitlab-runner)"
 }
 
 echo "Running in $CONTAINER_ID"

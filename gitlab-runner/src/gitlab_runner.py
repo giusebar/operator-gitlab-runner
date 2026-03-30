@@ -27,6 +27,21 @@ def install_lxd_executor(env=None):
     subprocess.run(['lxd', 'init', '--auto'], env=env)
 
 
+def configure_lxd_proxy(proxy_env=None):
+    proxy_env = proxy_env or {}
+    lxd_proxy_map = {
+        'core.proxy_http': proxy_env.get('HTTP_PROXY') or proxy_env.get('http_proxy'),
+        'core.proxy_https': proxy_env.get('HTTPS_PROXY') or proxy_env.get('https_proxy'),
+        'core.proxy_ignore_hosts': proxy_env.get('NO_PROXY') or proxy_env.get('no_proxy'),
+    }
+
+    for lxd_key, value in lxd_proxy_map.items():
+        if value:
+            subprocess.run(['lxc', 'config', 'set', lxd_key, value])
+        else:
+            subprocess.run(['lxc', 'config', 'unset', lxd_key])
+
+
 def install_docker_executor(env=None):
     subprocess.run(['apt', 'install', '-y', 'docker.io'], env=env)
     subprocess.run(['systemctl', 'start', 'docker.service'])
@@ -182,13 +197,8 @@ def register_docker(charm, https_proxy=None, http_proxy=None, no_proxy=None) -> 
            f"--locked={locked}",
            "--executor", "docker"]
 
-    if not run_untagged and tag_list != "":
-        cmd.extend(["--tag-list", "{tag-list}"])
-    if run_untagged and tag_list != "":
-        logging.warning(
-            'Conflicting configuration, run-untagged=True and tag_list are '
-            'mutually exclusive. Skipping tag-list.'
-        )
+    if tag_list != "":
+        cmd.extend(["--tag-list", tag_list])
 
     logging.info(
         "Executing registration call for gitlab-runner with Docker executor"
@@ -253,13 +263,8 @@ def register_lxd(charm, https_proxy=None, http_proxy=None, no_proxy=None) -> boo
            "--custom-cleanup-exec", "/opt/lxd-executor/cleanup.sh",
            ]
 
-    if not run_untagged and tag_list != "":
-        cmd.extend(["--tag-list", "{tag-list}"])
-    if run_untagged and tag_list != "":
-        logging.warning(
-            'Conflicting configuration, run-untagged=True and tag_list are '
-            'mutually exclusive. Skipping tag-list.'
-        )
+    if tag_list != "":
+        cmd.extend(["--tag-list", tag_list])
 
     logging.info("Executing registration call for gitlab-runner with lxd executor")
     process = subprocess.Popen(cmd, env=runner_env)
