@@ -16,6 +16,15 @@ import toml
 from pathlib import Path
 import jinja2
 
+PROXY_ENV_KEYS = {
+    'HTTP_PROXY',
+    'http_proxy',
+    'HTTPS_PROXY',
+    'https_proxy',
+    'NO_PROXY',
+    'no_proxy',
+}
+
 
 def install_lxd_executor(env=None):
     subprocess.run(['useradd', '-g', 'lxd', 'gitlab-runner'])
@@ -27,12 +36,32 @@ def install_lxd_executor(env=None):
     subprocess.run(['lxd', 'init', '--auto'], env=env)
 
 
-def configure_lxd_proxy(proxy_env=None):
+def proxy_environment_variables(proxy_env=None):
     proxy_env = proxy_env or {}
+    http_proxy = proxy_env.get('http_proxy') or proxy_env.get('HTTP_PROXY')
+    https_proxy = proxy_env.get('https_proxy') or proxy_env.get('HTTPS_PROXY')
+    no_proxy = proxy_env.get('no_proxy') or proxy_env.get('NO_PROXY')
+
+    variables = {}
+    if http_proxy:
+        variables['http_proxy'] = http_proxy
+        variables['HTTP_PROXY'] = http_proxy
+    if https_proxy:
+        variables['HTTPS_PROXY'] = https_proxy
+        variables['https_proxy'] = https_proxy
+    if no_proxy:
+        variables['NO_PROXY'] = no_proxy
+        variables['no_proxy'] = no_proxy
+
+    return variables
+
+
+def configure_lxd_proxy(proxy_env=None):
+    proxy_env = proxy_environment_variables(proxy_env)
     lxd_proxy_map = {
-        'core.proxy_http': proxy_env.get('HTTP_PROXY') or proxy_env.get('http_proxy'),
-        'core.proxy_https': proxy_env.get('HTTPS_PROXY') or proxy_env.get('https_proxy'),
-        'core.proxy_ignore_hosts': proxy_env.get('NO_PROXY') or proxy_env.get('no_proxy'),
+        'core.proxy_http': proxy_env.get('HTTP_PROXY'),
+        'core.proxy_https': proxy_env.get('HTTPS_PROXY'),
+        'core.proxy_ignore_hosts': proxy_env.get('NO_PROXY'),
     }
 
     for lxd_key, value in lxd_proxy_map.items():
@@ -40,6 +69,83 @@ def configure_lxd_proxy(proxy_env=None):
             subprocess.run(['lxc', 'config', 'set', lxd_key, value])
         else:
             subprocess.run(['lxc', 'config', 'unset', lxd_key])
+
+
+def _docker_runner_proxy_environment_entries(proxy_env=None):
+    return [f'{key}={value}' for key, value in proxy_environment_variables(proxy_env).items()]
+
+
+def _set_docker_runner_proxy_environment(runner, proxy_entries):
+    current_env = runner.get('environment')
+    if not isinstance(current_env, list):
+        current_env = []
+
+    preserved = []
+    for entry in current_env:
+        if not isinstance(entry, str):
+            preserved.append(entry)
+            continue
+        key, sep, _ = entry.partition('=')
+        if sep and key in PROXY_ENV_KEYS:
+            continue
+        preserved.append(entry)
+
+    new_env = preserved + proxy_entries
+    if new_env == runner.get('environment'):
+        return False
+
+    if new_env:
+        runner['environment'] = new_env
+    elif 'environment' in runner:
+        del runner['environment']
+    return True
+
+
+def configure_docker_runner_proxy_env(proxy_env=None,
+                                      config_path='/etc/gitlab-runner/config.toml') -> bool:
+    """Append proxy environment variables to docker runners in config.toml."""
+    desired_entries = _docker_runner_proxy_environment_entries(proxy_env)
+
+    try:
+        with open(config_path, encoding='utf-8') as f:
+            data = toml.load(f)
+    except (OSError, toml.TomlDecodeError, IndexError) as e:
+        logging.warning(
+            'Unable to load %s while applying docker proxy environment: %s',
+            config_path,
+            e,
+        )
+        return False
+
+    runners = data.get('runners')
+    if not isinstance(runners, list):
+        return False
+
+    changed = False
+    for runner in runners:
+        if not isinstance(runner, dict):
+            continue
+
+        if runner.get('executor') != 'docker':
+            continue
+
+        changed = _set_docker_runner_proxy_environment(runner, desired_entries) or changed
+
+    if not changed:
+        return True
+
+    try:
+        with open(config_path, 'w', encoding='utf-8') as f:
+            toml.dump(data, f)
+    except OSError as e:
+        logging.warning(
+            'Unable to persist docker proxy environment to %s: %s',
+            config_path,
+            e,
+        )
+        return False
+
+    return True
 
 
 def install_docker_executor(env=None):
@@ -197,8 +303,13 @@ def register_docker(charm, https_proxy=None, http_proxy=None, no_proxy=None) -> 
            f"--locked={locked}",
            "--executor", "docker"]
 
-    if tag_list != "":
-        cmd.extend(["--tag-list", tag_list])
+    if not run_untagged and tag_list != "":
+        cmd.extend(["--tag-list", "{tag-list}"])
+    if run_untagged and tag_list != "":
+        logging.warning(
+            'Conflicting configuration, run-untagged=True and tag_list are '
+            'mutually exclusive. Skipping tag-list.'
+        )
 
     logging.info(
         "Executing registration call for gitlab-runner with Docker executor"
@@ -263,8 +374,13 @@ def register_lxd(charm, https_proxy=None, http_proxy=None, no_proxy=None) -> boo
            "--custom-cleanup-exec", "/opt/lxd-executor/cleanup.sh",
            ]
 
-    if tag_list != "":
-        cmd.extend(["--tag-list", tag_list])
+    if not run_untagged and tag_list != "":
+        cmd.extend(["--tag-list", "{tag-list}"])
+    if run_untagged and tag_list != "":
+        logging.warning(
+            'Conflicting configuration, run-untagged=True and tag_list are '
+            'mutually exclusive. Skipping tag-list.'
+        )
 
     logging.info("Executing registration call for gitlab-runner with lxd executor")
     process = subprocess.Popen(cmd, env=runner_env)

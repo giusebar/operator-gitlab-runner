@@ -200,6 +200,8 @@ class GitlabRunnerCharm(CharmBase):
         self._write_docker_proxy_dropin()
         if self.config.get('executor') == 'lxd':
             gitlab_runner.configure_lxd_proxy(self._get_proxy_env())
+        elif self.config.get('executor') == 'docker':
+            gitlab_runner.configure_docker_runner_proxy_env(self._get_proxy_env())
         subprocess.run(['systemctl', 'daemon-reload'])
         if self.config.get('executor') == 'docker':
             subprocess.run(['systemctl', 'restart', 'docker.service'])
@@ -282,6 +284,7 @@ class GitlabRunnerCharm(CharmBase):
                 https_proxy=proxy_env.get('https_proxy'),
                 no_proxy=proxy_env.get('no_proxy')
             ):
+                gitlab_runner.configure_docker_runner_proxy_env(proxy_env)
                 self._stored.registered = True
                 logger.info("Ready (Registered)")
             else:

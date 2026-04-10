@@ -1,0 +1,5 @@
+gitlab-runner:
+  gitlab-server: "http://10.202.227.210"
+  gitlab-registration-token: Wt1gvJsCg7929tDUqSMh
+  tag-list: "juju,docker,master"
+  run-untagged: true

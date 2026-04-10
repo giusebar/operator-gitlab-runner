@@ -5,8 +5,10 @@
 import pathlib
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
+import toml
 
 import ops.testing
 from ops.testing import Harness
@@ -26,7 +28,7 @@ print(f"Current path: {current_path.as_posix()}\n"
 sys.path.append(src_path.as_posix())
 try:
     from charm import GitlabRunnerCharm
-    from gitlab_runner import register_docker
+    from gitlab_runner import register_docker, configure_docker_runner_proxy_env
 except ImportError:
     print("ERROR: Import of charm.GitlabRunnerCharm failed!")
     raise
@@ -315,3 +317,100 @@ class TestCharm(unittest.TestCase):
             "NO_PROXY": "localhost,127.0.0.1",
             "no_proxy": "localhost,127.0.0.1",
         })
+
+    @patch('gitlab_runner.gitlab_runner_registered_already')
+    @patch('gitlab_runner.configure_docker_runner_proxy_env')
+    @patch('subprocess.run')
+    @patch('gitlab_runner.get_token')
+    def test_34_config_changed_applies_docker_proxy(
+        self,
+        mock_get_token,
+        mock_subprocess_run,
+        mock_configure_docker_proxy,
+        mock_registered,
+    ):
+        mock_get_token.return_value = 'ABCDEFGH'
+        mock_subprocess_run.return_value.returncode = 0
+        mock_registered.return_value = True
+        with patch.dict(
+            os.environ,
+            {
+                "JUJU_CHARM_HTTP_PROXY": "http://proxy.example.com:3128",
+                "JUJU_CHARM_HTTPS_PROXY": "https://proxy.example.com:3129",
+                "JUJU_CHARM_NO_PROXY": "localhost,127.0.0.1",
+            },
+            clear=False,
+        ):
+            self.harness.update_config({
+                "gitlab-registration-token": "abc",
+                "gitlab-server": "https://gitlab.com",
+                "executor": "docker",
+            })
+
+        mock_configure_docker_proxy.assert_called_once_with({
+            "HTTP_PROXY": "http://proxy.example.com:3128",
+            "http_proxy": "http://proxy.example.com:3128",
+            "HTTPS_PROXY": "https://proxy.example.com:3129",
+            "https_proxy": "https://proxy.example.com:3129",
+            "NO_PROXY": "localhost,127.0.0.1",
+            "no_proxy": "localhost,127.0.0.1",
+        })
+
+    def test_35_configure_docker_runner_proxy_environment_updates_environment(self):
+        proxy_env = {
+            "HTTP_PROXY": "http://egress.ps7.internal:3128",
+            "http_proxy": "http://egress.ps7.internal:3128",
+            "HTTPS_PROXY": "http://egress.ps7.internal:3128",
+            "https_proxy": "http://egress.ps7.internal:3128",
+            "NO_PROXY": "127.0.0.1,localhost,::1,10.151.0.0/16,10.152.0.0/16,10.156.0.0/16",
+            "no_proxy": "127.0.0.1,localhost,::1,10.151.0.0/16,10.152.0.0/16,10.156.0.0/16",
+        }
+
+        with tempfile.NamedTemporaryFile('w+', suffix='.toml') as temp_file:
+            toml.dump({
+                "runners": [
+                    {
+                        "name": "docker-runner",
+                        "executor": "docker",
+                        "environment": [
+                            "CUSTOM_VAR=kept",
+                            "HTTP_PROXY=http://old.proxy:3128",
+                            "no_proxy=old",
+                        ],
+                    },
+                    {
+                        "name": "lxd-runner",
+                        "executor": "custom",
+                        "environment": [
+                            "HTTP_PROXY=should-stay",
+                        ],
+                    },
+                ]
+            }, temp_file)
+            temp_file.flush()
+
+            result = configure_docker_runner_proxy_env(
+                proxy_env,
+                config_path=temp_file.name,
+            )
+
+            self.assertTrue(result)
+            temp_file.seek(0)
+            config = toml.load(temp_file)
+
+        self.assertEqual(
+            config["runners"][0]["environment"],
+            [
+                "CUSTOM_VAR=kept",
+                "http_proxy=http://egress.ps7.internal:3128",
+                "HTTP_PROXY=http://egress.ps7.internal:3128",
+                "HTTPS_PROXY=http://egress.ps7.internal:3128",
+                "https_proxy=http://egress.ps7.internal:3128",
+                "NO_PROXY=127.0.0.1,localhost,::1,10.151.0.0/16,10.152.0.0/16,10.156.0.0/16",
+                "no_proxy=127.0.0.1,localhost,::1,10.151.0.0/16,10.152.0.0/16,10.156.0.0/16",
+            ],
+        )
+        self.assertEqual(
+            config["runners"][1]["environment"],
+            ["HTTP_PROXY=should-stay"],
+        )
