@@ -71,7 +71,7 @@ options:
     type: boolean
     default: false
     description: |
-      "Allow for running Docker in Docker using socks"
+      "Allow running Docker-in-Docker by setting the Docker executor to privileged mode"
 
   executor:
     type: string
