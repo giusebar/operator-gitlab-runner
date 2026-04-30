@@ -1,8 +1,0 @@
-gitlab-runner-two:
-  gitlab-server: "http://10.202.227.191"
-  gitlab-registration-token: d3DpT4aHVhMztGTv9udH
-  tag-list: "juju,docker,master"
-  run-untagged: true
-  juju-http-proxy: http://egress.ps7.internal:3128
-  juju-https-proxy: http://egress.ps7.internal:3128
-  juju-no-proxy: 127.0.0.1,localhost,::1,10.151.0.0/16,10.152.0.0/16,10.156.0.0/16
